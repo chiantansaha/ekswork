@@ -1,0 +1,88 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fargate-log-gen
+  namespace: logdemo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: appf
+      k8s-app: fluentd-cloudwatch
+  template:
+    metadata:
+      labels:
+        app: appf
+        k8s-app: fluentd-cloudwatch
+      annotations:
+        iam.amazonaws.com/role: logdemo-sa
+    spec:
+      volumes:
+        - name: fluentdconf
+          configMap:
+            name: fluentd-spring-config
+        - name: app-logs
+          emptyDir: {}
+      serviceAccount: logdemo-sa
+      serviceAccountName: logdemo-sa
+      containers:
+        - name: app
+          image: busybox
+          command: ['sh', '-c']
+          args:
+          - >
+            while true;
+            do echo "Time: Tue Oct 13 06:13:30 UTC 2020 2MvGUYHxz92kk9dKmnNHj6vhgstl3RuU288eer5HvjcmnsKgPVn3O9krZk3F7jDtfbBkpgkAPgVQB5unMlf3iJp0W1K3kBjKcovIVPCWV5xHl13rdEE2AtLDKJpYYkrwKVL2sXzryow520lBtEEDUoDCa4ATgh93Gqcj41EnY9jfheGPcIx2eBUHTHAX02lsZ7VnJZ9VocuRAYhhpEoARsnb23v27gcwuFB0fFZwAU9lGN1tKigZQBOQp1PQObFz89IjZpowKJs3SvJi8EGXXU5cR7zLaIP2gEZ5rHqV6yBexEUicyEVoft0p5UrChALxJ3Rvl25jsIB9qCPwnFRfScYqhaFR87OBylpmdZWWFBJ77wji7MJGkEi1Eo8gp4tkdTSiOGeVhyBcvvRqZeuxHnALAZUeUGHk9uvXai5hEkAiyAtfvlekw3ywOXhLckN8V1MHpesKn3OUxdoYl5e26tKiGE7tA1YFLGHkPdkFq2kBM5lSAd2UGcGdF2ehMEBvqTAjhxptDIX4LdJge1yrnrQyRpPQ6grwV818EK9GCVhnYs8JFom0Qpt9t6XY2n7lfm4qeV4gYXiQzI92qEX3QiiY939dkxdgp0E1fFNhxAf8yVqd8jE6pR5mkAriIzAYGk7TIuxRedzRiQqYxqGSRdDzGnaWYIlI355x3ZOQpsJwuMZAtmZk4P6P4vVT5pFuXbRwoYH23UMzjvWgIHVGFE7cV1U2zCRCd7zYZUEf0ynifXdCK2UQG39biQAGnjNrvYRAh28MJg4eLRwQdwPF1rOrETotyw9PrMFyF8hCcyM765F3QgU0ys8hu7omDvFHVxE9JkGrGliQO946w4GaiBiSxyZjQtTY1ChvFpec7azTTq3VbuYr8x6Gu2ZiixcM2RQldQQYGV85W5EKabkeoHh2rIHigHAj3MzsCNfueiY8968133JPDHi6oe2vz4zyktuyBLNMTzFPPz4Dd5OcohZTFWXQklXCrhDcwVGfuX8JnkEE9LTwGZdT1RV5hoF" | tee -a /var/log/containers/application.log;
+            sleep 1;
+            done;
+          imagePullPolicy: Always
+          volumeMounts:
+          - mountPath: /var/log/containers
+            name: app-logs
+          resources:
+            requests:
+              cpu: 200m
+              memory: 0.5Gi
+            limits:
+              cpu: 400m
+              memory: 1Gi
+          securityContext:
+            privileged: false
+            readOnlyRootFilesystem: false
+            allowPrivilegeEscalation: false
+        - name: logrotate
+          image: realz/logrotate
+          volumeMounts:
+          - mountPath: /var/log/containers
+            name: app-logs
+          env:
+          - name: CRON_EXPR
+            value: "*/15 * * * *"
+          - name: LOGROTATE_LOGFILES
+            value: "/var/log/containers/*.log"
+          - name: LOGROTATE_FILESIZE
+            value: "50M"
+          - name: LOGROTATE_FILENUM
+            value: "5"
+        - name: fluentd
+          image: fluent/fluentd-kubernetes-daemonset:v1.9.3-debian-cloudwatch-1.0
+          env:
+          - name: REGION
+            value: us-east-2
+          - name: AWS_REGION
+            value: us-east-2
+          - name: CLUSTER_NAME
+            value: eksfargate-logging-demo
+          - name: CI_VERSION
+            value: "k8s/1.0.1"
+          resources:
+            limits:
+              memory: 400Mi
+            requests:
+              cpu: 100m
+              memory: 200Mi
+          volumeMounts:
+          - name: fluentdconf
+            mountPath: /fluentd/etc
+          - name: app-logs
+            mountPath: /var/log/containers
